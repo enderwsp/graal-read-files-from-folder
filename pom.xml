@@ -1,0 +1,243 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.example</groupId>
+    <artifactId>readfilesfromfolder</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>JavaXml Maven Webapp</name>
+    <!-- FIXME change it to the project's website -->
+    <url>http://www.example.com</url>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <java.compiler.ver>11</java.compiler.ver>
+        <maven.compiler.source>${java.compiler.ver}</maven.compiler.source>
+        <maven.compiler.target>${java.compiler.ver}</maven.compiler.target>
+        <graalvm.version>22.3.0</graalvm.version>
+        <app.main.class>com.app.ExampleApplication</app.main.class>
+        <native.maven.plugin.version>0.9.11</native.maven.plugin.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.graalvm.sdk</groupId>
+            <artifactId>graal-sdk</artifactId>
+            <version>${graalvm.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-core</artifactId>
+            <version>5.3.19</version>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>1.2.11</version>
+        </dependency>
+    </dependencies>
+
+    <profiles>
+        <!-- This is the profile for running the JIT version of the app AND RUNNING THE AGENTLIB
+            to profile the app to identify reflection etc. To run:
+
+            $ mvn clean package exec:exec -PJAVA_AGENT_LIB
+        -->
+        <profile>
+            <id>java_agent</id>
+            <build>
+                <plugins>
+                    <!-- Compiler -->
+                    <plugin>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <version>3.8.1</version>
+                        <configuration>
+                            <source>${java.compiler.ver}</source>
+                            <target>${java.compiler.ver}</target>
+                        </configuration>
+                    </plugin>
+                    <!-- Package -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-assembly-plugin</artifactId>
+                        <version>3.3.0</version>
+                        <configuration>
+                            <descriptorRefs>
+                                <descriptorRef>jar-with-dependencies</descriptorRef>
+                            </descriptorRefs>
+                            <archive>
+                                <manifest>
+                                    <!-- Specify the main class -->
+                                    <mainClass>${app.main.class}</mainClass>
+                                </manifest>
+                            </archive>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>make-assembly</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>single</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <!-- Run the app, quick way of testing the Java version -->
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <version>3.0.0</version>
+                        <configuration>
+                            <executable>java</executable>
+                            <arguments>
+                                <argument>
+                                    -agentlib:native-image-agent=config-output-dir=./src/main/resources/META-INF/native-image/
+                                </argument>
+                                <argument>-classpath</argument>
+                                <classpath/>
+                                <argument>${app.main.class}</argument>
+                            </arguments>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <!-- This is the profile for generating the native image. It must be run
+            after the agent lib has done it's work, or if it doesn't need to do it's
+            work ;)
+
+            To run:
+
+            $ mvn clean package exec:exec -PNATIVE_IMAGE
+        -->
+        <profile>
+            <id>native</id>
+            <build>
+                <plugins>
+                    <!-- Native Image -->
+                    <plugin>
+                        <groupId>org.graalvm.buildtools</groupId>
+                        <artifactId>native-maven-plugin</artifactId>
+                        <version>${native.maven.plugin.version}</version>
+                        <extensions>true</extensions>
+                        <executions>
+                            <execution>
+                                <id>build-native</id>
+                                <goals>
+                                    <goal>build</goal>
+                                </goals>
+                                <phase>package</phase>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <!-- Set this to true if you need to switch this off -->
+                            <skip>false</skip>
+                            <!-- The output name for the executable sh exe -->
+                            <imageName>${artifactId}</imageName>
+                            <mainClass>${app.main.class}</mainClass>
+                            <buildArgs>
+                                <!-- With Enterprise you can use the G1GC -->
+                                <!--buildArg>- -gc=G1</buildArg-->
+                                <buildArg>
+                                    -Dgraal.CompilationFailureAction=Diagnose
+                                    -Dgraal.ShowConfiguration=info
+                                    --allow-incomplete-classpath
+                                    -H:+ReportExceptionStackTraces
+                                    -H:+PrintAOTCompilation
+                                    -H:+PrintClassInitialization
+                                    -H:+PrintFeatures
+                                    -H:+PrintHeapHistogram
+                                    -H:+PrintImageElementSizes
+                                    -H:+PrintImageHeapPartitionSizes
+                                    -H:+PrintJNIMethods
+                                    -H:+PrintUniverse
+                                    -H:+PrintMethodHistogram
+                                    -H:+PrintRuntimeCompileMethods
+                                    -H:Log=registerResource:3
+                                    -H:+DynamicProxyTracing
+                                    --verbose
+                                    -H:+LogVerbose
+                                    -Dspring.native.verbose=true
+                                    -Dspring.native.verify=false
+                                    -H:+ProfileDeoptimization
+                                    -H:TraceClassInitialization=true
+                                    -H:+AddAllCharsets
+                                    --report-unsupported-elements-at-runtime
+                                    --diagnostics-mode
+                                    -H:+JNI
+                                    -H:+DashboardAll
+                                    -H:+DashboardPretty
+                                    <!--
+                                                                        -H:+ReflectionPluginTracing
+                                    -->
+                                    <!--
+                                                                        -H:+TraceLoggingFeature
+                                    -->
+                                    --no-fallback
+                                    <!--  -H:+TraceLocalizationFeature
+
+                                      -H:+TraceSecurityServices
+                                      -H:+TraceServiceLoaderFeature
+                                      -H:+TraceVMOperations-->
+
+                                    -H:DeadlockWatchdogInterval=10
+                                    -H:+DeadlockWatchdogExitOnTimeout
+                                    -H:+PrintAnalysisCallTree
+                                    -H:+PrintAnalysisStatistics
+                                    -H:+PrintCompilation
+                                </buildArg>
+                            </buildArgs>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
+    <build>
+        <finalName>${artifactId}</finalName>
+        <plugins>
+            <!-- Compiler -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.8.1</version>
+                <configuration>
+                    <source>${java.compiler.ver}</source>
+                    <target>${java.compiler.ver}</target>
+                </configuration>
+            </plugin>
+            <!-- Package -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <version>3.3.0</version>
+                <configuration>
+                    <descriptorRefs>
+                        <descriptorRef>jar-with-dependencies</descriptorRef>
+                    </descriptorRefs>
+                    <archive>
+                        <manifest>
+                            <!-- Specify the main class -->
+                            <mainClass>${app.main.class}</mainClass>
+                        </manifest>
+                    </archive>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>make-assembly</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
